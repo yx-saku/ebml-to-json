@@ -4,6 +4,14 @@
   "description": "ebml-to-json",
   "author": "saxxos",
   "license": "MIT",
+  "keywords": [
+    "ebml",
+    "matroska",
+    "webm",
+    "json",
+    "mkv",
+    "writer"
+  ],
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com:yx-saku/ebml-to-json.git"
