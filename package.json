@@ -2,14 +2,19 @@
   "name": "ebml-to-json",
   "version": "1.0.0",
   "description": "ebml-to-json",
+  "author": "saxxos",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com:yx-saku/ebml-to-json.git"
+  },
   "files": [
     "dist/*",
     "types/*"
   ],
   "main": "dist/index.js",
-  "types": "types/EbmlToJson.d.ts",
+  "types": "types/index.d.ts",
   "devDependencies": {
-    "@types/dom-mediacapture-record": "^1.0.7",
     "del": "^5.1.0",
     "gulp": "^4.0.2",
     "ts-loader": "^6.2.2",
@@ -17,7 +22,6 @@
     "webpack": "^4.42.1"
   },
   "dependencies": {
-    "buffer": "^5.6.0",
     "ts-ebml": "^2.0.2"
   }
 }

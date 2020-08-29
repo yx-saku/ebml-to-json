@@ -144,7 +144,7 @@ export class EbmlToJson {
         }, "    ");
     }
 
-    public jsonToElmArray() {
+    private jsonToElmArray() {
         const jsonToElmArrayRecursive = (elm: EBMLElementDetail) => {
             const cElm = Object.assign({}, elm);
             const arr: EBMLElementDetail[] = [<any>cElm];

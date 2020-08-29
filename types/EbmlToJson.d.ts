@@ -1,4 +1,3 @@
-import { EBMLElementDetail } from "ts-ebml";
 import { EBML } from "./elements/EBML";
 import { Segment } from "./elements/Segment";
 export declare class EbmlToJson {
@@ -18,5 +17,5 @@ export declare class EbmlToJson {
      * Json化したEBMLファイルを文字列で出力します。
      */
     toString(): string;
-    jsonToElmArray(): EBMLElementDetail[];
+    private jsonToElmArray;
 }
