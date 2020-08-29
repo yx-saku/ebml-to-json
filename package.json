@@ -1,0 +1,23 @@
+{
+  "name": "ebml-to-json",
+  "version": "1.0.0",
+  "description": "ebml-to-json",
+  "files": [
+    "dist/*",
+    "types/*"
+  ],
+  "main": "dist/index.js",
+  "types": "types/EbmlToJson.d.ts",
+  "devDependencies": {
+    "@types/dom-mediacapture-record": "^1.0.7",
+    "del": "^5.1.0",
+    "gulp": "^4.0.2",
+    "ts-loader": "^6.2.2",
+    "typescript": "^3.8.3",
+    "webpack": "^4.42.1"
+  },
+  "dependencies": {
+    "buffer": "^5.6.0",
+    "ts-ebml": "^2.0.2"
+  }
+}
