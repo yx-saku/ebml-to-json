@@ -1,5 +1,4 @@
-import { EBML } from "./elements/EBML";
-import { Segment } from "./elements/Segment";
+import { EBML, Segment } from "./elements";
 export declare class EbmlToJson {
     EBML: EBML;
     Segment: Segment;
@@ -17,5 +16,5 @@ export declare class EbmlToJson {
      * Json化したEBMLファイルを文字列で出力します。
      */
     toString(): string;
-    private jsonToElmArray;
+    private _jsonToElmArray;
 }

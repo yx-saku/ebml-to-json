@@ -17,7 +17,8 @@ module.exports = {
     },
     output: {
         path: __dirname + "/dist",
-        filename: "[name].js"
+        filename: "[name].js",
+        libraryTarget: "umd"
     },
     performance: {
         maxEntrypointSize: 2 * 1024 * 1024,

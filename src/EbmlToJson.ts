@@ -1,15 +1,7 @@
-import { EBMLElementDetail, tools, Decoder, Encoder, MasterElement, BinaryElement } from "ts-ebml";
-import { EBML } from "./elements/EBML";
-import { Segment } from "./elements/Segment";
-import { Cluster, BlockGroup, SimpleBlock } from "./elements/Cluster";
-
-const MultipleElement = ["AttachedFile", "EditionEntry", "ChapterDisplay", "ChapProcess", "ChapterTrackUID",
-    "ChapLanguage", "ChapLanguageIETF", "ChapCountry", "ChapProcessCommand", "SimpleBlock", "BlockGroup",
-    "EncryptedBlock", "SilentTrackNumber", "ReferenceBlock", "BlockMore", "TimeSlice", "CuePoint",
-    "CueTrackPositions", "CueReference", "SegmentFamily", "ChapterTranslate", "ChapterTranslateEditionUID",
-    "Cluster", "Tracks", "Tags", "Tag", "SimpleTag", "TagTrackUID", "TagEditionUID", "TagChapterUID",
-    "TagAttachmentUID", "TrackEntry", "BlockAdditionMapping", "CodecInfoURL", "CodecDownloadURL", "TrackOverlay",
-    "TrackTranslate", "TrackTranslateEditionUID", "TrackPlane", "TrackJoinUID", "ContentEncoding", "blocks"];
+import { EBMLElementDetail, tools, Decoder, Encoder, MasterElement } from "ts-ebml";
+import { EBML, Segment, SimpleBlock, BlockGroup, Cluster } from "./elements";
+import { OutputExcludeKeys, MultipleElements } from "./Const";
+import { Buffer } from "ts-ebml/lib/tools";
 
 export class EbmlToJson {
     public EBML: EBML;
@@ -45,7 +37,7 @@ export class EbmlToJson {
                 if (elm.name === "BlockGroup" || elm.name === "SimpleBlock") {
                     // ブロック要素にtrackNumberとtimecode設定
                     const blockElm = <BlockGroup | SimpleBlock>elm;
-                    const blockBuf = elm.name === "BlockGroup" ? (<BlockGroup>blockElm).Block.value : (<BinaryElement>blockElm).value;
+                    const blockBuf = elm.name === "BlockGroup" ? (<BlockGroup>blockElm).Block.value : (<SimpleBlock>blockElm).value;
                     const blockData = tools.readBlock(blockBuf);
                     blockElm.trackNumber = blockData.trackNumber;
                     blockElm.timecode = blockData.timecode;
@@ -86,7 +78,7 @@ export class EbmlToJson {
                     propertyName = elm.name;
                 }
 
-                if (MultipleElement.indexOf(propertyName) >= 0) {
+                if (MultipleElements.indexOf(propertyName) >= 0) {
                     if (json[propertyName] == null) {
                         json[propertyName] = [];
                     }
@@ -108,7 +100,7 @@ export class EbmlToJson {
      * @param codecs 
      */
     public toBlob(codecs: string) {
-        const elms = this.jsonToElmArray();
+        const elms = this._jsonToElmArray();
         const encoder = new Encoder();
         const buf = encoder.encode(elms);
         return new Blob([buf], { type: `video/webm; codecs="${codecs}"` });
@@ -119,37 +111,42 @@ export class EbmlToJson {
      */
     public toString() {
         return JSON.stringify({ EBML: this.EBML, Segment: this.Segment }, function (k, v) {
-            if (k == "schema" || v == null) {
+            if (OutputExcludeKeys.includes(k)) {
                 return;
             }
 
-            if (k.length == 0 || Array.isArray(v)) {
-                return v;
+            if (v.value instanceof Int8Array ||
+                v.value instanceof Uint8Array ||
+                v.value instanceof Uint8ClampedArray ||
+                v.value instanceof Int16Array ||
+                v.value instanceof Uint16Array ||
+                v.value instanceof Int32Array ||
+                v.value instanceof Uint32Array ||
+                v.value instanceof Float32Array ||
+                v.value instanceof Float64Array ||
+                v.value instanceof BigInt64Array ||
+                v.value instanceof BigUint64Array ||
+                v.value instanceof ArrayBuffer ||
+                v.value instanceof Buffer) {
+                v = Object.assign({}, v, { value: `${v.value.constructor.name}(${v.value.byteLength})` });
             }
 
-            if (v.name == "SimpleBlock" || v.name == "BlockGroup") {
-                /*
-                let ret = `${v.name} ${v.trackNumber} ${v.timecode} ${v.blockDuration}`;
-                if (v.ReferenceBlock && v.ReferenceBlock.length > 0) {
-                    ret += " " + v.ReferenceBlock[0].value;
-                }
-                return ret;
-                */
-                return v;
+            const includeKeys = Object.keys(v).filter(k => !OutputExcludeKeys.includes(k));
+            if (includeKeys.length == 1 && includeKeys[0] == "value") {
+                return v.value;
             }
-
-            if (v.type != null) {
-                return v.type === "m" ? v : v.value;
+            else {
+                return v
             }
         }, "    ");
     }
 
-    private jsonToElmArray() {
+    private _jsonToElmArray() {
         const jsonToElmArrayRecursive = (elm: EBMLElementDetail) => {
             const cElm = Object.assign({}, elm);
             const arr: EBMLElementDetail[] = [<any>cElm];
             for (const k of Object.keys(cElm)) {
-                if (k == "schema") {
+                if (OutputExcludeKeys.includes(k)) {
                     continue;
                 }
 
@@ -157,9 +154,15 @@ export class EbmlToJson {
                 if (e != null && (e.type != null || Array.isArray(e))) {
                     const children = Array.isArray(e) ? e : [e];
                     children.forEach(c => {
+                        if (c.type === "b") {
+                            if (c.value instanceof Array) {
+                                c.value = new Buffer(c.value);
+                            }
+                        }
+
                         if (c.name === "BlockGroup" || c.name === "SimpleBlock") {
                             const block = c.name === "BlockGroup" ? c.Block : c;
-                            const dataBuffer: Buffer = block.data;
+                            const dataBuffer: Buffer = block.value;
                             let offset: number;
                             for (offset = 1; offset <= 8; offset++) {
                                 if (dataBuffer[0] >= Math.pow(2, 8 - offset)) break;
@@ -182,6 +185,7 @@ export class EbmlToJson {
 
                             c.data = data;
                         }
+
                         arr.push.apply(arr, c.type === "m" ? jsonToElmArrayRecursive(c) : [c]);
                     });
 

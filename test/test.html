@@ -1,0 +1,30 @@
+<html>
+    <head>
+        <style>
+            video {
+                width: 640px;
+            }
+
+            pre{
+                display: inline-block;
+                width: 640px;
+                height: 400px;
+                border: 1px black solid;
+                overflow: scroll;
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <video id="v1" autoplay="true" muted controls></video>
+            <video id="v2" autoplay="true" muted controls></video>
+        </div>
+        <div>
+            <pre id="v1Json"></pre>
+            <pre id="v2Json"></pre>
+        </div>
+
+        <script src="../../dist/index.js"></script>
+        <script src="./test.js"></script>
+    </body>
+</html>

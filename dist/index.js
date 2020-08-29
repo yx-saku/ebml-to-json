@@ -1,4 +1,14 @@
-/******/ (function(modules) { // webpackBootstrap
+(function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory();
+	else if(typeof define === 'function' && define.amd)
+		define([], factory);
+	else {
+		var a = factory();
+		for(var i in a) (typeof exports === 'object' ? exports : root)[i] = a[i];
+	}
+})(window, function() {
+return /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache
 /******/ 	var installedModules = {};
 /******/
@@ -6826,6 +6836,30 @@ module.exports = g;
 
 /***/ }),
 
+/***/ "./src/Const.ts":
+/*!**********************!*\
+  !*** ./src/Const.ts ***!
+  \**********************/
+/*! no static exports found */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.OutputExcludeKeys = exports.MultipleElements = void 0;
+exports.MultipleElements = ["AttachedFile", "EditionEntry", "ChapterDisplay", "ChapProcess", "ChapterTrackUID",
+    "ChapLanguage", "ChapLanguageIETF", "ChapCountry", "ChapProcessCommand", "SimpleBlock", "BlockGroup",
+    "EncryptedBlock", "SilentTrackNumber", "ReferenceBlock", "BlockMore", "TimeSlice", "CuePoint",
+    "CueTrackPositions", "CueReference", "Seek", "SegmentFamily", "ChapterTranslate", "ChapterTranslateEditionUID",
+    "Cluster", "Tracks", "Tags", "Tag", "SimpleTag", "TagTrackUID", "TagEditionUID", "TagChapterUID", "SeekHead", "Info",
+    "TagAttachmentUID", "TrackEntry", "BlockAdditionMapping", "CodecInfoURL", "CodecDownloadURL", "TrackOverlay",
+    "TrackTranslate", "TrackTranslateEditionUID", "TrackPlane", "TrackJoinUID", "ContentEncoding", "blocks"];
+exports.OutputExcludeKeys = ["name", "type", "schema", "EBML_ID", "level", "tagStart", "tagEnd",
+    "sizeStart", "sizeEnd", "dataStart", "dataEnd", "dataSize", "isEnd", "unknownSize", "data"];
+
+
+/***/ }),
+
 /***/ "./src/EbmlToJson.ts":
 /*!***************************!*\
   !*** ./src/EbmlToJson.ts ***!
@@ -6834,17 +6868,12 @@ module.exports = g;
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/* WEBPACK VAR INJECTION */(function(Buffer) {
+
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EbmlToJson = void 0;
 const ts_ebml_1 = __webpack_require__(/*! ts-ebml */ "./node_modules/ts-ebml/lib/index.js");
-const MultipleElement = ["AttachedFile", "EditionEntry", "ChapterDisplay", "ChapProcess", "ChapterTrackUID",
-    "ChapLanguage", "ChapLanguageIETF", "ChapCountry", "ChapProcessCommand", "SimpleBlock", "BlockGroup",
-    "EncryptedBlock", "SilentTrackNumber", "ReferenceBlock", "BlockMore", "TimeSlice", "CuePoint",
-    "CueTrackPositions", "CueReference", "SegmentFamily", "ChapterTranslate", "ChapterTranslateEditionUID",
-    "Cluster", "Tracks", "Tags", "Tag", "SimpleTag", "TagTrackUID", "TagEditionUID", "TagChapterUID",
-    "TagAttachmentUID", "TrackEntry", "BlockAdditionMapping", "CodecInfoURL", "CodecDownloadURL", "TrackOverlay",
-    "TrackTranslate", "TrackTranslateEditionUID", "TrackPlane", "TrackJoinUID", "ContentEncoding", "blocks"];
+const Const_1 = __webpack_require__(/*! ./Const */ "./src/Const.ts");
+const tools_1 = __webpack_require__(/*! ts-ebml/lib/tools */ "./node_modules/ts-ebml/lib/tools.js");
 class EbmlToJson {
     /**
      * EBMLファイルを読み込み、EBML・Segmentプロパティに設定する
@@ -6910,7 +6939,7 @@ class EbmlToJson {
                     }
                     propertyName = elm.name;
                 }
-                if (MultipleElement.indexOf(propertyName) >= 0) {
+                if (Const_1.MultipleElements.indexOf(propertyName) >= 0) {
                     if (json[propertyName] == null) {
                         json[propertyName] = [];
                     }
@@ -6929,7 +6958,7 @@ class EbmlToJson {
      * @param codecs
      */
     toBlob(codecs) {
-        const elms = this.jsonToElmArray();
+        const elms = this._jsonToElmArray();
         const encoder = new ts_ebml_1.Encoder();
         const buf = encoder.encode(elms);
         return new Blob([buf], { type: `video/webm; codecs="${codecs}"` });
@@ -6939,42 +6968,53 @@ class EbmlToJson {
      */
     toString() {
         return JSON.stringify({ EBML: this.EBML, Segment: this.Segment }, function (k, v) {
-            if (k == "schema" || v == null) {
+            if (Const_1.OutputExcludeKeys.includes(k)) {
                 return;
             }
-            if (k.length == 0 || Array.isArray(v)) {
-                return v;
+            if (v.value instanceof Int8Array ||
+                v.value instanceof Uint8Array ||
+                v.value instanceof Uint8ClampedArray ||
+                v.value instanceof Int16Array ||
+                v.value instanceof Uint16Array ||
+                v.value instanceof Int32Array ||
+                v.value instanceof Uint32Array ||
+                v.value instanceof Float32Array ||
+                v.value instanceof Float64Array ||
+                v.value instanceof BigInt64Array ||
+                v.value instanceof BigUint64Array ||
+                v.value instanceof ArrayBuffer ||
+                v.value instanceof tools_1.Buffer) {
+                v = Object.assign({}, v, { value: `${v.value.constructor.name}(${v.value.byteLength})` });
             }
-            if (v.name == "SimpleBlock" || v.name == "BlockGroup") {
-                /*
-                let ret = `${v.name} ${v.trackNumber} ${v.timecode} ${v.blockDuration}`;
-                if (v.ReferenceBlock && v.ReferenceBlock.length > 0) {
-                    ret += " " + v.ReferenceBlock[0].value;
-                }
-                return ret;
-                */
-                return v;
+            const includeKeys = Object.keys(v).filter(k => !Const_1.OutputExcludeKeys.includes(k));
+            if (includeKeys.length == 1 && includeKeys[0] == "value") {
+                return v.value;
             }
-            if (v.type != null) {
-                return v.type === "m" ? v : v.value;
+            else {
+                return v;
             }
         }, "    ");
     }
-    jsonToElmArray() {
+    _jsonToElmArray() {
         const jsonToElmArrayRecursive = (elm) => {
             const cElm = Object.assign({}, elm);
             const arr = [cElm];
             for (const k of Object.keys(cElm)) {
-                if (k == "schema") {
+                if (Const_1.OutputExcludeKeys.includes(k)) {
                     continue;
                 }
                 let e = cElm[k];
                 if (e != null && (e.type != null || Array.isArray(e))) {
                     const children = Array.isArray(e) ? e : [e];
                     children.forEach(c => {
+                        if (c.type === "b") {
+                            if (c.value instanceof Array) {
+                                c.value = new tools_1.Buffer(c.value);
+                            }
+                        }
                         if (c.name === "BlockGroup" || c.name === "SimpleBlock") {
                             const block = c.name === "BlockGroup" ? c.Block : c;
-                            const dataBuffer = block.data;
+                            const dataBuffer = block.value;
                             let offset;
                             for (offset = 1; offset <= 8; offset++) {
                                 if (dataBuffer[0] >= Math.pow(2, 8 - offset))
@@ -6992,7 +7032,7 @@ class EbmlToJson {
                             if (bytes >= 7) {
                                 throw "7bit or more bigger uint not supported.";
                             }
-                            const data = new Buffer(bytes);
+                            const data = new tools_1.Buffer(bytes);
                             data.writeIntBE(c.value, 0, bytes);
                             c.data = data;
                         }
@@ -7012,9 +7052,9 @@ class EbmlToJson {
 }
 exports.EbmlToJson = EbmlToJson;
 
-/* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(/*! ./../node_modules/node-libs-browser/node_modules/buffer/index.js */ "./node_modules/node-libs-browser/node_modules/buffer/index.js").Buffer))
 
 /***/ })
 
 /******/ });
+});
 //# sourceMappingURL=index.js.map

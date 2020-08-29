@@ -1,8 +1,6 @@
 import { NumberElement, MasterElement, BinaryElement, ElementDetail } from "ts-ebml";
 
 export interface Cluster extends MasterElement, ElementDetail {
-    name: "Cluster";
-
     Timecode: NumberElement;
     SilentTracks: SilentTracks;
     Position: NumberElement;

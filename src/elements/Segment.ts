@@ -9,13 +9,8 @@ import { Chapters } from "./Chapters";
 import { Tags } from "./Tags";
 
 export interface Segment extends MasterElement, ElementDetail {
-    type: "m";
-    isEnd: boolean;
-    unknownSize?: boolean;
-    name: string;
-
-    SeekHead: SeekHead;
-    Info: Info;
+    SeekHead: SeekHead[];
+    Info: Info[];
     Cluster: Cluster[];
     Tracks: Tracks[];
     Cues: Cues;
