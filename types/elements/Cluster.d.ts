@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import { NumberElement, MasterElement, BinaryElement, ElementDetail } from "ts-ebml";
 export interface Cluster extends MasterElement, ElementDetail {
     Timecode: NumberElement;

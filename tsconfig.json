@@ -5,13 +5,9 @@
     "compilerOptions": {
         "target": "ESNext",
         "module": "commonjs",
-        "lib": [
-            "DOM",
-            "ES2015.Promise",
-            "ES2019"
-        ],
         "declaration": true,
         "declarationDir": "./types",
-        "keyofStringsOnly": true
+        "resolveJsonModule": true,
+        "esModuleInterop": true
     }
 }

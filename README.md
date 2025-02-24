@@ -1,7 +1,7 @@
 # Usage
 ```typescript
 // ArrayBufferを読み込み、EBMLの構造をJSONとして参照できます。
-const arrayBuffer = new Promise(resolve => {
+const arrayBuffer = await new Promise(resolve => {
     const fr = new FileReader()
     fr.onload = () => resolve(fr.result);
     fr.readAsArrayBuffer(movieBlobOrFile);
@@ -9,6 +9,7 @@ const arrayBuffer = new Promise(resolve => {
 
 const ebmlJson = new EbmlToJson(arrayBuffer);
 console.log(ebmlJson.toString());
+// ex)
 // {
 //     "EBML": {
 //         "EBMLVersion": 1,

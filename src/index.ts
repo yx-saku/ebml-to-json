@@ -1,2 +1,3 @@
 export { EbmlToJson } from "./EbmlToJson";
-export * from "./elements";
+export { Decoder } from "./Decoder"
+export { Encoder } from "./Encoder"
