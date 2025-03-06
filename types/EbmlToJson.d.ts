@@ -1,4 +1,6 @@
 import { EbmlSchemaJson } from "./EbmlSchemaJson";
+export declare const blockElements: readonly ["SimpleBlock", "Block"];
+export type BlockElements = typeof blockElements[number];
 type EBMLSchemaAll = typeof EbmlSchemaJson.EBMLSchema.element;
 export type EBMLSchema<T extends EBMLSchemaAll[number]["@name"] = EBMLSchemaAll[number]["@name"]> = Extract<EBMLSchemaAll[number], {
     "@name": T;
@@ -7,10 +9,10 @@ export type EBMLSchemaFromType<T extends EBMLSchemaAll[number]["@type"] = EBMLSc
     "@type": T;
 }>;
 export type EBMLElementValueType<T extends EBMLSchema = EBMLSchema> = T extends {
-    "@name": "SimpleBlock";
-} ? SimpleBlockStructure : T extends {
+    "@name": BlockElements;
+} ? BlockStructure : T extends {
     "@type": "master";
-} ? EBMLTreeElement : T extends {
+} ? EBMLTreeElement & CustomFunctions : T extends {
     "@type": "uinteger" | "integer";
 } ? bigint : T extends {
     "@type": "float";
@@ -42,16 +44,27 @@ export type EBMLElement<T extends EBMLSchema = EBMLSchema> = {
         };
     };
     schema: T;
+    level: number;
     data: T extends {
         "@type": "master";
     } ? EBMLElement[] : EBMLElementValueType<T>;
 };
-export type EBMLTreeElement = {
-    [K in EBMLSchema as K["@name"]]?: (K extends {
-        "@maxOccurs": any;
-    } ? (K["@maxOccurs"] extends "1" ? EBMLElementValueType<K> : EBMLElementValueType<K>[]) : EBMLElementValueType<K>[]);
+type EBMLTreeElementValue<T extends EBMLSchema = EBMLSchema> = (T extends {
+    "@maxOccurs": any;
+} ? (T["@maxOccurs"] extends "1" ? EBMLElementValueType<T> : EBMLElementValueType<T>[] & ToJSON) : EBMLElementValueType<T>[] & ToJSON);
+type ToJSON = {
+    toJSON?: () => any;
 };
-export type SimpleBlockStructure = {
+type CustomFunctions<T extends EBMLSchema = EBMLSchema> = ToJSON & {
+    insertBefore?: (insertTarget: {
+        key: T["@name"];
+        index?: number;
+    } | T["@name"], key: T["@name"], value: EBMLTreeElementValue<T>) => void;
+};
+export type EBMLTreeElement = {
+    [K in EBMLSchema as K["@name"]]?: EBMLTreeElementValue<K>;
+};
+export type BlockStructure = {
     TrackNumber: bigint;
     Timestamp: number;
     KEY: boolean;

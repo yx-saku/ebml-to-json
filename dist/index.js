@@ -22,6 +22,7 @@ return /******/ (() => { // webpackBootstrap
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Decoder = void 0;
 const EbmlSchemaJson_1 = __webpack_require__(/*! ./EbmlSchemaJson */ "./src/EbmlSchemaJson.ts");
+const EbmlToJson_1 = __webpack_require__(/*! ./EbmlToJson */ "./src/EbmlToJson.ts");
 class Decoder {
     buffer;
     dataView;
@@ -67,7 +68,7 @@ class Decoder {
         const self = this;
         let pos = 0;
         let lastLoaded = null;
-        return (function decode(path = "", parentEnd = self.dataView.byteLength) {
+        return (function decode(parentPath = "", parentEnd = self.dataView.byteLength) {
             let elements = [];
             while (pos < parentEnd) {
                 const element = { pos: { id: {}, size: {}, data: {} } };
@@ -87,7 +88,7 @@ class Decoder {
                     const id = `0x${element.id.toString(16).toUpperCase()}`;
                     element.schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@id"] == id)[0];
                     // データサイズが不明な要素を読み込み中、スキーマと親要素が一致しない要素が出てきたらデータ終わりと判定
-                    const paths = path.split("\\").slice(1);
+                    const paths = parentPath.split("\\").slice(1);
                     const schemaPaths = element.schema?.["@path"].split("\\").slice(1);
                     if (paths.length > 0) {
                         if (paths[paths.length - 1] != schemaPaths[schemaPaths.length - 2]) {
@@ -106,32 +107,34 @@ class Decoder {
                         element.size = sizeInfo.value;
                         element.pos.data.end = pos + Number(element.size);
                     }
-                    if (element.schema["@name"] == "SimpleBlock") {
-                        // SimpleBlockの内部構造をデコード
-                        const simpleBlock = {};
+                    // 階層
+                    element.level = paths.length;
+                    if (EbmlToJson_1.blockElements.includes(element.schema["@name"])) {
+                        // SimpleBlock,Blockの内部構造をデコード
+                        const block = {};
                         // TrackNumber
                         const trackNumber = self.readVint(pos);
                         pos += trackNumber.size;
-                        simpleBlock.TrackNumber = trackNumber.value;
+                        block.TrackNumber = trackNumber.value;
                         // Timestamp
-                        simpleBlock.Timestamp = self.dataView.getInt8(pos++);
-                        simpleBlock.Timestamp <<= 8;
-                        simpleBlock.Timestamp |= self.dataView.getUint8(pos++);
+                        block.Timestamp = self.dataView.getInt8(pos++);
+                        block.Timestamp <<= 8;
+                        block.Timestamp |= self.dataView.getUint8(pos++);
                         const octet = self.dataView.getUint8(pos);
                         pos++;
                         // KEY
-                        simpleBlock.KEY = (octet & 0b10000000) != 0;
+                        block.KEY = (octet & 0b10000000) != 0;
                         // Rsvrd
-                        simpleBlock.Rsvrd = (octet & 0b01110000) >>> 4;
+                        block.Rsvrd = (octet & 0b01110000) >>> 4;
                         // INV
-                        simpleBlock.INV = (octet & 0b00001000) != 0;
+                        block.INV = (octet & 0b00001000) != 0;
                         // LACING
-                        simpleBlock.LACING = (octet & 0b00000110) >>> 1;
+                        block.LACING = (octet & 0b00000110) >>> 1;
                         // DIS
-                        simpleBlock.DIS = (octet & 0b00000001) != 0;
-                        simpleBlock.frameData = self.dataView.buffer.slice(pos, element.pos.data.end);
-                        pos += simpleBlock.frameData.byteLength;
-                        element.data = simpleBlock;
+                        block.DIS = (octet & 0b00000001) != 0;
+                        block.frameData = self.dataView.buffer.slice(pos, element.pos.data.end);
+                        pos += block.frameData.byteLength;
+                        element.data = block;
                     }
                     else {
                         if (element.schema?.["@type"] == "master") {
@@ -143,7 +146,7 @@ class Decoder {
                                 if (element.size == 0n)
                                     element.data = [];
                                 else {
-                                    const currentPath = path + "\\" + element.schema?.["@name"];
+                                    const currentPath = parentPath + "\\" + element.schema?.["@name"];
                                     const ret = decode(currentPath, element.pos.data.end ?? parentEnd);
                                     if ("lastLoaded" in ret) {
                                         lastLoaded = ret.lastLoaded;
@@ -227,41 +230,13 @@ class Decoder {
                 }
                 if (element.pos.data.end == null)
                     element.pos.data.end = pos;
-                // else if (element.pos.data.end != pos)
-                //     throw `データの位置がずれている: ${element.pos.data.end} ${pos}`
+                else if (element.pos.data.end != pos)
+                    throw `データの位置がずれている: ${element.pos.data.end} ${pos}`;
                 // JSON 構造として保存
                 elements.push(element);
             }
             return { elements };
         })().elements;
-    }
-    /**
-     * SimpleBlockとしてデコードする
-     */
-    decodeSimpleBlock() {
-        const simpleBlock = {};
-        let pos = 0;
-        // TrackNumber
-        const trackNumber = this.readVint(pos);
-        pos += trackNumber.size;
-        simpleBlock.TrackNumber = trackNumber.value;
-        // Timestamp
-        simpleBlock.Timestamp = this.dataView.getUint16(pos);
-        pos += 2;
-        const octet = this.dataView.getUint8(pos);
-        pos++;
-        // KEY
-        simpleBlock.KEY = (octet & 0b10000000) != 0;
-        // Rsvrd
-        simpleBlock.Rsvrd = (octet & 0b01110000) >>> 4;
-        // INV
-        simpleBlock.INV = (octet & 0b00001000) != 0;
-        // LACING
-        simpleBlock.LACING = (octet & 0b00000110) >>> 1;
-        // DIS
-        simpleBlock.DIS = (octet & 0b00000001) != 0;
-        simpleBlock.frameData = this.dataView.buffer.slice(pos);
-        return simpleBlock;
     }
 }
 exports.Decoder = Decoder;
@@ -283,231 +258,19 @@ exports.EbmlSchemaJson = { "EBMLSchema": { "@xmlns": "urn:ietf:rfc:8794", "@docT
 
 /***/ }),
 
-/***/ "./src/Encoder.ts":
-/*!************************!*\
-  !*** ./src/Encoder.ts ***!
-  \************************/
-/***/ ((__unused_webpack_module, exports) => {
-
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Encoder = void 0;
-class Encoder {
-    elements;
-    constructor(elements) {
-        this.elements = elements;
-    }
-    /**
-     * uintを表せる最小のbit数を返す
-     * @param uint
-     * @returns
-     */
-    getUintSize(uint) {
-        const nUint = BigInt(uint);
-        let length = 1;
-        while ((nUint >> BigInt(length)) !== 0n)
-            length++;
-        return length;
-    }
-    /**
-     * 整数をバッファに書き込む
-     * @param value
-     */
-    writeInt(type, value, byteLength) {
-        const isNegative = value < 0;
-        value = value < 0 ? -value : value;
-        if (byteLength == null) {
-            const bitLength = this.getUintSize(value);
-            byteLength = Math.ceil(bitLength / 8);
-            if (type == "int" && bitLength % 8 == 0) {
-                byteLength++;
-            }
-        }
-        value = BigInt(value);
-        const uint8Array = new Uint8Array(byteLength);
-        for (let i = 0; i < byteLength; i++) {
-            uint8Array[i] = Number((value >> (BigInt(byteLength - (i + 1))) * 8n) & 0xffn);
-        }
-        if (type == "int" && isNegative) {
-            uint8Array[0] |= 0x80;
-        }
-        return uint8Array.buffer;
-    }
-    /**
-     * 可変長整数をエンコードする
-     * @param start
-     * @returns
-     */
-    writeVint(value, withOctetLength = false) {
-        if (!withOctetLength) {
-            // TODO 元々の大きさを保持するパターンがあってもいい
-            const bitLength = this.getUintSize(value);
-            let octetLength = 0;
-            while (bitLength > octetLength * 8 - octetLength)
-                octetLength++;
-            value = BigInt(value);
-            const octetLengthBit = (0x80n << BigInt((octetLength - 1) * 8)) >> BigInt(octetLength - 1);
-            value |= octetLengthBit;
-        }
-        return this.writeInt("uint", value);
-    }
-    /**
-     * バイナリデータにデコードする
-     * @returns
-     */
-    encode() {
-        const self = this;
-        let prev = -1;
-        return (function encode(elements = self.elements) {
-            const buffers = elements.map(e => {
-                const buffer = {};
-                // Element ID を書き込む
-                buffer.id = self.writeVint(e.id, true);
-                // データ部分
-                if (e.schema["@name"] == "SimpleBlock") {
-                    const sb = e.data;
-                    prev = sb.Timestamp;
-                    const trackNumber = self.writeVint(sb.TrackNumber);
-                    const sbBuf = new Uint8Array(new ArrayBuffer(trackNumber.byteLength + 3 + sb.frameData.byteLength));
-                    let offset = 0;
-                    sbBuf.set(new Uint8Array(trackNumber), offset);
-                    offset += trackNumber.byteLength;
-                    sbBuf.set(new Uint8Array(self.writeInt("int", sb.Timestamp, 2)), offset);
-                    offset += 2;
-                    let octet = (sb.KEY ? 1 : 0) << 7;
-                    octet |= sb.Rsvrd << 4;
-                    octet |= (sb.INV ? 1 : 0) << 3;
-                    octet |= sb.LACING << 1;
-                    octet |= sb.DIS ? 1 : 0;
-                    sbBuf.set(new Uint8Array([octet]), offset);
-                    offset++;
-                    sbBuf.set(new Uint8Array(sb.frameData), offset);
-                    buffer.data = sbBuf.buffer;
-                }
-                else {
-                    const typ = e.schema?.["@type"];
-                    switch (typ) {
-                        case "master":
-                            buffer.data = encode(e.data);
-                            break;
-                        case "integer":
-                            buffer.data = self.writeInt("int", e.data);
-                            break;
-                        case "uinteger":
-                            buffer.data = self.writeInt("uint", e.data);
-                            break;
-                        case "float":
-                            const num = e.data;
-                            if (num != 0) {
-                                if (new Float32Array([num])[0] === num) {
-                                    const dataView = new DataView(new ArrayBuffer(4));
-                                    dataView.setFloat32(0, num, false);
-                                    buffer.data = dataView.buffer;
-                                }
-                                else {
-                                    const dataView = new DataView(new ArrayBuffer(8));
-                                    dataView.setFloat64(0, num, false);
-                                    buffer.data = dataView.buffer;
-                                }
-                            }
-                            break;
-                        case "date":
-                            let nanos = BigInt(new Date(2001, 0, 1).getTime()) * 1000n * 1000n;
-                            const nanoOffset = e.data["nanos"] - nanos;
-                            if (nanoOffset != 0n) {
-                                buffer.data = BigInt64Array.of(nanoOffset).buffer;
-                            }
-                            break;
-                        default:
-                            switch (typ) {
-                                case "string": {
-                                    const str = e.data;
-                                    const uint8Array = new Uint8Array([...str].map(char => char.charCodeAt(0)));
-                                    buffer.data = uint8Array.buffer;
-                                    break;
-                                }
-                                case "utf-8": {
-                                    const str = e.data;
-                                    const encoder = new TextEncoder();
-                                    const uint8Array = encoder.encode(str);
-                                    buffer.data = uint8Array.buffer;
-                                    break;
-                                }
-                                default:
-                                    buffer.data = e.data;
-                                    break;
-                            }
-                            break;
-                    }
-                }
-                if (buffer.data == null) {
-                    buffer.data = new ArrayBuffer(0);
-                }
-                // Size（データ長）を書き込む
-                buffer.size = self.writeVint(e.schema["@unknownsizeallowed"] != "1" ?
-                    buffer.data.byteLength : 0xffffffffffffffn);
-                return buffer;
-            });
-            const totalSize = buffers.reduce((p, c) => p + c.id.byteLength + c.size.byteLength + c.data.byteLength, 0);
-            const totalUint8Array = new Uint8Array(new ArrayBuffer(totalSize));
-            let offset = 0;
-            buffers.forEach(b => {
-                totalUint8Array.set(new Uint8Array(b.id), offset);
-                offset += b.id.byteLength;
-                totalUint8Array.set(new Uint8Array(b.size), offset);
-                offset += b.size.byteLength;
-                totalUint8Array.set(new Uint8Array(b.data), offset);
-                offset += b.data.byteLength;
-            });
-            return totalUint8Array.buffer;
-        })();
-    }
-}
-exports.Encoder = Encoder;
-
-
-/***/ })
-
-/******/ 	});
-/************************************************************************/
-/******/ 	// The module cache
-/******/ 	var __webpack_module_cache__ = {};
-/******/ 	
-/******/ 	// The require function
-/******/ 	function __webpack_require__(moduleId) {
-/******/ 		// Check if module is in cache
-/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
-/******/ 		if (cachedModule !== undefined) {
-/******/ 			return cachedModule.exports;
-/******/ 		}
-/******/ 		// Create a new module (and put it into the cache)
-/******/ 		var module = __webpack_module_cache__[moduleId] = {
-/******/ 			// no module.id needed
-/******/ 			// no module.loaded needed
-/******/ 			exports: {}
-/******/ 		};
-/******/ 	
-/******/ 		// Execute the module function
-/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
-/******/ 	
-/******/ 		// Return the exports of the module
-/******/ 		return module.exports;
-/******/ 	}
-/******/ 	
-/************************************************************************/
-var __webpack_exports__ = {};
-// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
-(() => {
-var exports = __webpack_exports__;
+/***/ "./src/EbmlToJson.ts":
 /*!***************************!*\
   !*** ./src/EbmlToJson.ts ***!
   \***************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.EbmlToJson = exports.LACING = void 0;
+exports.EbmlToJson = exports.LACING = exports.blockElements = void 0;
 const Decoder_1 = __webpack_require__(/*! ./Decoder */ "./src/Decoder.ts");
 const Encoder_1 = __webpack_require__(/*! ./Encoder */ "./src/Encoder.ts");
 const EbmlSchemaJson_1 = __webpack_require__(/*! ./EbmlSchemaJson */ "./src/EbmlSchemaJson.ts");
+exports.blockElements = ["SimpleBlock", "Block"];
 var LACING;
 (function (LACING) {
     LACING[LACING["No"] = 0] = "No";
@@ -533,16 +296,100 @@ class EbmlToJson {
         function proxyFactry(targetObj, elements, elementName) {
             if (targetObj == null || typeof (targetObj) != "object" || objectToProxy.has(targetObj))
                 return targetObj;
-            function getTargetElements(target, key) {
+            function getTargetElementIndexes(target, key) {
                 if (Array.isArray(target)) {
                     const index = parseInt(key);
-                    return elements
+                    const target = elements
                         .filter(e => e.schema["@name"] == elementName)
-                        .filter((_, i) => i == index);
+                        .filter((_, i) => i == index)[0];
+                    return [elements.indexOf(target)];
                 }
                 else {
                     return elements
-                        .filter(e => e.schema["@name"] == key);
+                        .filter(e => e.schema["@name"] == key)
+                        .map(e => elements.indexOf(e));
+                }
+            }
+            /**
+             * 値をelementsの配列に設定する
+             * @param target
+             * @param key
+             * @param value
+             */
+            function setValue(target, key, value, insertIndex) {
+                // アクセスしたキーに該当する要素を取得
+                const indexes = getTargetElementIndexes(target, key);
+                // 配列化
+                if (!Array.isArray(value)) {
+                    value = [value];
+                }
+                const name = Array.isArray(target) ? elementName : key;
+                const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == name)[0];
+                let i = 0;
+                for (; i < value.length; i++) {
+                    const data = (function recursive(val) {
+                        if (!exports.blockElements.includes(name) && isPlainObject(val)) {
+                            // オブジェクトを配列に変換
+                            return Object.keys(val).flatMap(k => {
+                                const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == k)[0];
+                                const vals = Array.isArray(val[k]) ? val[k] : [val[k]];
+                                return vals.map(v => ({
+                                    id: schema ? BigInt(schema["@id"]) : null,
+                                    pos: null,
+                                    size: null,
+                                    schema,
+                                    data: exports.blockElements.includes(schema["@name"]) ? v : recursive(v) // SimpleBlock,Blockだけ例外
+                                }));
+                            });
+                        }
+                        else {
+                            return val; // 配列の入れ子は構造上ありえない。そのまま返す
+                        }
+                    })(value[i]);
+                    const newElement = {
+                        id: schema ? BigInt(schema["@id"]) : null,
+                        pos: null,
+                        size: null,
+                        schema,
+                        data
+                    };
+                    if (i < indexes.length) {
+                        // 既に存在する要素の値を更新
+                        const index = indexes[i];
+                        if (insertIndex == null) {
+                            // 更新
+                            elements[index].data = data;
+                        }
+                        else {
+                            // 更新＆位置変更
+                            if (indexes.length == 1 && schema?.["@maxOccurs"] == "1") {
+                                const [target] = elements.splice(index, 1);
+                                target.data = data;
+                                elements.splice(insertIndex, 0, target);
+                            }
+                            else {
+                                elements.splice(insertIndex, 0, newElement);
+                            }
+                        }
+                    }
+                    else {
+                        // 新しい要素を追加
+                        if (insertIndex == null) {
+                            // 末尾に追加
+                            elements.push(newElement);
+                        }
+                        else {
+                            // 挿入
+                            elements.splice(insertIndex, 0, newElement);
+                        }
+                    }
+                    if (insertIndex != null) {
+                        insertIndex++;
+                    }
+                }
+                // 余分な要素を削除
+                if (insertIndex == null) {
+                    indexes.slice(i).reverse().forEach(idx => elements.splice(idx, 1));
                 }
             }
             const proxy = new Proxy(targetObj, {
@@ -563,13 +410,30 @@ class EbmlToJson {
                                 }, {});
                         };
                     }
+                    if (key === "getIndexInSameLevel") {
+                        return (key, indexInSameElement) => {
+                            const indexes = getTargetElementIndexes(target, key);
+                            return indexInSameElement == null ? indexes[0] : indexes[indexInSameElement];
+                        };
+                    }
+                    if (key === "insertBefore") {
+                        return (insertTarget, key, value) => {
+                            if (typeof (insertTarget) == "string") {
+                                insertTarget = { key: insertTarget };
+                            }
+                            const indexes = getTargetElementIndexes(target, insertTarget.key);
+                            const insertIndex = indexes[insertTarget.index];
+                            setValue(target, key, value, insertIndex);
+                        };
+                    }
                     if (typeof (target[key]) == "function" || Array.isArray(target) && !/^[0-9]+$/.test(key)) {
                         return target[key];
                     }
                     // アクセスしたキーに該当する要素を取得
-                    const targetElements = getTargetElements(target, key);
+                    const indexes = getTargetElementIndexes(target, key);
                     // 要素に設定された値を取得
-                    const valueList = targetElements
+                    const valueList = indexes
+                        .map(i => elements[i])
                         .map(e => Array.isArray(e.data) ?
                         proxyFactry({}, e.data) :
                         e.data);
@@ -579,68 +443,30 @@ class EbmlToJson {
                     }
                     else {
                         // ツリーのプロパティにアクセスしたら、対応する要素やその配列を返す
-                        const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == key)[0];
-                        if (valueList.length == 0)
-                            return undefined;
-                        else if (valueList.length == 1 && schema?.["@maxOccurs"] == "1")
-                            return valueList[0];
-                        else
-                            return proxyFactry(valueList, elements, key);
+                        if (valueList.length == 0) {
+                            return undefined; // 該当する要素なし
+                        }
+                        else {
+                            const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == key)[0];
+                            if (valueList.length == 1 && schema?.["@maxOccurs"] == "1") {
+                                return valueList[0]; // 単一要素
+                            }
+                            else {
+                                return proxyFactry(valueList, elements, key); // 複数要素
+                            }
+                        }
                     }
                 },
                 set(target, key, value) {
                     if (Array.isArray(target) && !/^[0-9]+$/.test(key)) {
                         return Reflect.set(target, key, value);
                     }
-                    // アクセスしたキーに該当する要素を取得
-                    const targetElements = getTargetElements(target, key);
-                    // 配列化
-                    if (!Array.isArray(value)) {
-                        value = [value];
-                    }
-                    let i = 0;
-                    for (; i < value.length; i++) {
-                        const data = (function recursive(val) {
-                            if (isPlainObject(val)) {
-                                // オブジェクトを配列に変換
-                                return Object.keys(val).flatMap(k => {
-                                    const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == k)[0];
-                                    const vals = Array.isArray(val[k]) ? val[k] : [val[k]];
-                                    return vals.map(v => ({
-                                        id: schema ? BigInt(schema["@id"]) : null,
-                                        pos: null,
-                                        size: null,
-                                        schema,
-                                        data: schema["@name"] == "SimpleBlock" ? v : recursive(v) // SimpleBlockだけ例外
-                                    }));
-                                });
-                            }
-                            else {
-                                return val; // 配列の入れ子は構造上ありえない。そのまま返す
-                            }
-                        })(value[i]);
-                        if (i < targetElements.length) {
-                            // 既に存在する要素の値を更新
-                            targetElements[i].data = data;
-                        }
-                        else {
-                            // 新しい要素を追加
-                            const name = Array.isArray(target) ? elementName : key;
-                            const schema = EbmlSchemaJson_1.EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == name)[0];
-                            elements.push({
-                                id: schema ? BigInt(schema["@id"]) : null,
-                                pos: null,
-                                size: null,
-                                schema,
-                                data
-                            });
-                        }
-                    }
-                    // 余分な要素を削除
-                    targetElements.slice(i).forEach(v => {
-                        const i = elements.indexOf(v);
-                        elements.splice(i, 1);
-                    });
+                    setValue(target, key, value);
+                    return true;
+                },
+                deleteProperty(target, key) {
+                    const indexes = getTargetElementIndexes(target, key);
+                    indexes.reverse().forEach(idx => elements.splice(idx, 1));
                     return true;
                 },
                 ownKeys(target) {
@@ -709,8 +535,241 @@ class EbmlToJson {
 }
 exports.EbmlToJson = EbmlToJson;
 
-})();
 
+/***/ }),
+
+/***/ "./src/Encoder.ts":
+/*!************************!*\
+  !*** ./src/Encoder.ts ***!
+  \************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.Encoder = void 0;
+const EbmlToJson_1 = __webpack_require__(/*! ./EbmlToJson */ "./src/EbmlToJson.ts");
+class Encoder {
+    elements;
+    constructor(elements) {
+        this.elements = elements;
+    }
+    /**
+     * uintを表せる最小のbit数を返す
+     * @param uint
+     * @returns
+     */
+    getUintSize(uint) {
+        const nUint = BigInt(uint);
+        let length = 1;
+        while ((nUint >> BigInt(length)) !== 0n)
+            length++;
+        return length;
+    }
+    /**
+     * 整数をバッファに書き込む
+     * @param value
+     */
+    writeInt(type, value, byteLength) {
+        const isNegative = value < 0;
+        value = value < 0 ? -value : value;
+        if (byteLength == null) {
+            const bitLength = this.getUintSize(value);
+            byteLength = Math.ceil(bitLength / 8);
+            if (type == "int" && bitLength % 8 == 0) {
+                byteLength++;
+            }
+        }
+        value = BigInt(value);
+        const uint8Array = new Uint8Array(byteLength);
+        for (let i = 0; i < byteLength; i++) {
+            uint8Array[i] = Number((value >> (BigInt(byteLength - (i + 1))) * 8n) & 0xffn);
+        }
+        if (type == "int" && isNegative) {
+            uint8Array[0] |= 0x80;
+        }
+        return uint8Array.buffer;
+    }
+    /**
+     * 可変長整数をエンコードする
+     * @param start
+     * @returns
+     */
+    writeVint(value, options) {
+        if (!options?.withOctetLength) {
+            const bitLength = this.getUintSize(value);
+            let octetLength = 0;
+            while (bitLength > octetLength * 8 - octetLength)
+                octetLength++;
+            if (!options?.allowAllOne) {
+                const vintMax = Math.pow(2, 8 * octetLength - octetLength) - 1;
+                if (vintMax == value) {
+                    octetLength++; // Data部が全て1はNG
+                }
+            }
+            value = BigInt(value);
+            const octetLengthBit = (0x80n << BigInt((octetLength - 1) * 8)) >> BigInt(octetLength - 1);
+            value |= octetLengthBit;
+        }
+        return this.writeInt("uint", value);
+    }
+    /**
+     * バイナリデータにデコードする
+     * @returns
+     */
+    encode() {
+        const self = this;
+        let prev = -1;
+        let totalWroteSize = 0;
+        return (function encode(elements = self.elements) {
+            const buffers = elements.map(e => {
+                const buffer = {};
+                // Element ID を書き込む
+                buffer.id = self.writeVint(e.id, { withOctetLength: true });
+                totalWroteSize += buffer.id.byteLength;
+                // データ部分
+                if (EbmlToJson_1.blockElements.includes(e.schema["@name"])) {
+                    const block = e.data;
+                    prev = block.Timestamp;
+                    const trackNumber = self.writeVint(block.TrackNumber);
+                    const sbBuf = new Uint8Array(new ArrayBuffer(trackNumber.byteLength + 3 + block.frameData.byteLength));
+                    let offset = 0;
+                    sbBuf.set(new Uint8Array(trackNumber), offset);
+                    offset += trackNumber.byteLength;
+                    sbBuf.set(new Uint8Array(self.writeInt("int", block.Timestamp, 2)), offset);
+                    offset += 2;
+                    let octet = (block.KEY ? 1 : 0) << 7;
+                    octet |= block.Rsvrd << 4;
+                    octet |= (block.INV ? 1 : 0) << 3;
+                    octet |= block.LACING << 1;
+                    octet |= block.DIS ? 1 : 0;
+                    sbBuf.set(new Uint8Array([octet]), offset);
+                    offset++;
+                    sbBuf.set(new Uint8Array(block.frameData), offset);
+                    buffer.data = sbBuf.buffer;
+                }
+                else {
+                    const typ = e.schema?.["@type"];
+                    switch (typ) {
+                        case "master":
+                            buffer.data = encode(e.data);
+                            break;
+                        case "integer":
+                            buffer.data = self.writeInt("int", e.data);
+                            break;
+                        case "uinteger":
+                            buffer.data = self.writeInt("uint", e.data);
+                            break;
+                        case "float":
+                            const num = e.data;
+                            if (num != 0) {
+                                if (new Float32Array([num])[0] === num) {
+                                    const dataView = new DataView(new ArrayBuffer(4));
+                                    dataView.setFloat32(0, num, false);
+                                    buffer.data = dataView.buffer;
+                                }
+                                else {
+                                    const dataView = new DataView(new ArrayBuffer(8));
+                                    dataView.setFloat64(0, num, false);
+                                    buffer.data = dataView.buffer;
+                                }
+                            }
+                            break;
+                        case "date":
+                            let nanos = BigInt(new Date(2001, 0, 1).getTime()) * 1000n * 1000n;
+                            const nanoOffset = e.data["nanos"] - nanos;
+                            if (nanoOffset != 0n) {
+                                buffer.data = BigInt64Array.of(nanoOffset).buffer;
+                            }
+                            break;
+                        default:
+                            switch (typ) {
+                                case "string": {
+                                    const str = e.data;
+                                    const uint8Array = new Uint8Array([...str].map(char => char.charCodeAt(0)));
+                                    buffer.data = uint8Array.buffer;
+                                    break;
+                                }
+                                case "utf-8": {
+                                    const str = e.data;
+                                    const encoder = new TextEncoder();
+                                    const uint8Array = encoder.encode(str);
+                                    buffer.data = uint8Array.buffer;
+                                    break;
+                                }
+                                default:
+                                    buffer.data = e.data;
+                                    break;
+                            }
+                            break;
+                    }
+                }
+                if (buffer.data == null) {
+                    buffer.data = new ArrayBuffer(0);
+                }
+                // Size（データ長）を書き込む
+                if (e.schema["@unknownsizeallowed"] != "1")
+                    buffer.size = self.writeVint(buffer.data.byteLength);
+                else
+                    buffer.size = self.writeVint(0xffffffffffffffn, { allowAllOne: true });
+                totalWroteSize += buffer.size.byteLength;
+                if (e.schema?.["@type"] != "master") {
+                    totalWroteSize += buffer.data.byteLength;
+                }
+                return buffer;
+            });
+            const totalSize = buffers.reduce((p, c) => p + c.id.byteLength + c.size.byteLength + c.data.byteLength, 0);
+            const totalUint8Array = new Uint8Array(new ArrayBuffer(totalSize));
+            let offset = 0;
+            buffers.forEach(b => {
+                totalUint8Array.set(new Uint8Array(b.id), offset);
+                offset += b.id.byteLength;
+                totalUint8Array.set(new Uint8Array(b.size), offset);
+                offset += b.size.byteLength;
+                totalUint8Array.set(new Uint8Array(b.data), offset);
+                offset += b.data.byteLength;
+            });
+            return totalUint8Array.buffer;
+        })();
+    }
+}
+exports.Encoder = Encoder;
+
+
+/***/ })
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__("./src/EbmlToJson.ts");
+/******/ 	
 /******/ 	return __webpack_exports__;
 /******/ })()
 ;

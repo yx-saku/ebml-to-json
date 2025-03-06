@@ -1,4 +1,4 @@
-import { EBMLElement, SimpleBlockStructure } from "./EbmlToJson";
+import { EBMLElement } from "./EbmlToJson";
 export declare class Decoder {
     readonly buffer: ArrayBuffer;
     private dataView;
@@ -14,8 +14,4 @@ export declare class Decoder {
      * @returns
      */
     decode(): EBMLElement[];
-    /**
-     * SimpleBlockとしてデコードする
-     */
-    decodeSimpleBlock(): SimpleBlockStructure;
 }

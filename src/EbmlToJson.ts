@@ -2,6 +2,9 @@ import { Decoder } from "./Decoder";
 import { Encoder } from "./Encoder";
 import { EbmlSchemaJson } from "./EbmlSchemaJson"
 
+export const blockElements = ["SimpleBlock", "Block"] as const;
+export type BlockElements = typeof blockElements[number]
+
 type EBMLSchemaAll = typeof EbmlSchemaJson.EBMLSchema.element
 
 export type EBMLSchema<T extends EBMLSchemaAll[number]["@name"] = EBMLSchemaAll[number]["@name"]> =
@@ -11,8 +14,8 @@ export type EBMLSchemaFromType<T extends EBMLSchemaAll[number]["@type"] = EBMLSc
     Extract<EBMLSchemaAll[number], { "@type": T }>;
 
 export type EBMLElementValueType<T extends EBMLSchema = EBMLSchema> =
-    T extends { "@name": "SimpleBlock" } ? SimpleBlockStructure :
-    T extends { "@type": "master" } ? EBMLTreeElement :
+    T extends { "@name": BlockElements } ? BlockStructure :
+    T extends { "@type": "master" } ? EBMLTreeElement & CustomFunctions :
     T extends { "@type": "uinteger" | "integer" } ? bigint :
     T extends { "@type": "float" } ? number :
     T extends { "@type": "string" | "utf-8" } ? string :
@@ -33,18 +36,25 @@ export type EBMLElement<T extends EBMLSchema = EBMLSchema> = {
     data: T extends { "@type": "master" } ? EBMLElement[] : EBMLElementValueType<T>
 };
 
-export type EBMLTreeElement = {
-    [K in EBMLSchema as K["@name"]]?: (
-        K extends { "@maxOccurs": any } ? (
-            K["@maxOccurs"] extends "1" ?
-            EBMLElementValueType<K> :
-            EBMLElementValueType<K>[]
-        ) :
-        EBMLElementValueType<K>[]
-    )
+type EBMLTreeElementValue<T extends EBMLSchema = EBMLSchema> = (
+    T extends { "@maxOccurs": any } ? (
+        T["@maxOccurs"] extends "1" ?
+        EBMLElementValueType<T> :
+        EBMLElementValueType<T>[] & ToJSON
+    ) :
+    EBMLElementValueType<T>[] & ToJSON
+)
+
+type ToJSON = { toJSON?: () => any };
+type CustomFunctions<T extends EBMLSchema = EBMLSchema> = ToJSON & {
+    insertBefore?: (insertTarget: { key: T["@name"], index?: number } | T["@name"], key: T["@name"], value: EBMLTreeElementValue<T>) => void
 };
 
-export type SimpleBlockStructure = {
+export type EBMLTreeElement = {
+    [K in EBMLSchema as K["@name"]]?: EBMLTreeElementValue<K>
+}
+
+export type BlockStructure = {
     TrackNumber: bigint,
     Timestamp: number,
     KEY: boolean,
@@ -86,21 +96,114 @@ export class EbmlToJson {
             if (targetObj == null || typeof (targetObj) != "object" || objectToProxy.has(targetObj))
                 return targetObj;
 
-            function getTargetElements(target: T & object, key: string) {
+            function getTargetElementIndexes(target: T & object, key: string) {
                 if (Array.isArray(target)) {
                     const index = parseInt(key);
-                    return elements
+                    const target = elements
                         .filter(e => e.schema["@name"] == elementName)
-                        .filter((_, i) => i == index);
+                        .filter((_, i) => i == index)[0];
+
+                    return [elements.indexOf(target)];
                 }
                 else {
                     return elements
                         .filter(e => e.schema["@name"] == key)
+                        .map(e => elements.indexOf(e));
+                }
+            }
+
+            /**
+             * 値をelementsの配列に設定する
+             * @param target 
+             * @param key 
+             * @param value 
+             */
+            function setValue(target: T & object, key: string, value: any, insertIndex?: number) {
+                // アクセスしたキーに該当する要素を取得
+                const indexes = getTargetElementIndexes(target, key);
+
+                // 配列化
+                if (!Array.isArray(value)) {
+                    value = [value];
+                }
+
+                const name = Array.isArray(target) ? elementName : key;
+                const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == name)[0];
+
+                let i = 0;
+                for (; i < value.length; i++) {
+
+                    const data = (function recursive(val) {
+                        if (!blockElements.includes(<any>name) && isPlainObject(val)) {
+                            // オブジェクトを配列に変換
+                            return Object.keys(val).flatMap(k => {
+                                const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == k)[0];
+                                const vals = Array.isArray(val[k]) ? val[k] : [val[k]];
+                                return vals.map(v => ({
+                                    id: schema ? BigInt(schema["@id"]) : null,
+                                    pos: null,
+                                    size: null,
+                                    schema,
+                                    data: blockElements.includes(<any>schema["@name"]) ? v : recursive(v)   // SimpleBlock,Blockだけ例外
+                                } as EBMLElement));
+                            });
+                        }
+                        else {
+                            return val; // 配列の入れ子は構造上ありえない。そのまま返す
+                        }
+                    })(value[i]);
+
+                    const newElement = {
+                        id: schema ? BigInt(schema["@id"]) : null,
+                        pos: null,
+                        size: null,
+                        schema,
+                        data
+                    } as EBMLElement;
+
+                    if (i < indexes.length) {
+                        // 既に存在する要素の値を更新
+                        const index = indexes[i];
+                        if (insertIndex == null) {
+                            // 更新
+                            elements[index].data = data;
+                        }
+                        else {
+                            // 更新＆位置変更
+                            if (indexes.length == 1 && schema?.["@maxOccurs"] == "1") {
+                                const [target] = elements.splice(index, 1);
+                                target.data = data;
+                                elements.splice(insertIndex, 0, target);
+                            }
+                            else {
+                                elements.splice(insertIndex, 0, newElement);
+                            }
+                        }
+                    }
+                    else {
+                        // 新しい要素を追加
+                        if (insertIndex == null) {
+                            // 末尾に追加
+                            elements.push(newElement)
+                        }
+                        else {
+                            // 挿入
+                            elements.splice(insertIndex, 0, newElement);
+                        }
+                    }
+
+                    if (insertIndex != null) {
+                        insertIndex++;
+                    }
+                }
+
+                // 余分な要素を削除
+                if (insertIndex == null) {
+                    indexes.slice(i).reverse().forEach(idx => elements.splice(idx, 1));
                 }
             }
 
             const proxy = new Proxy(targetObj, {
-
                 get(target, key) {
                     if (key === "toJSON") {
                         return () => {
@@ -121,16 +224,37 @@ export class EbmlToJson {
                         };
                     }
 
+                    if (key === "getIndexInSameLevel") {
+                        return (key: EBMLSchema["@name"], indexInSameElement?: number) => {
+                            const indexes = getTargetElementIndexes(target, key);
+                            return indexInSameElement == null ? indexes[0] : indexes[indexInSameElement];
+                        };
+                    }
+
+                    if (key === "insertBefore") {
+                        return (insertTarget: { key: EBMLSchema["@name"], index?: number } | EBMLSchema["@name"], key: EBMLSchema["@name"], value: EBMLTreeElementValue) => {
+                            if (typeof (insertTarget) == "string") {
+                                insertTarget = { key: insertTarget };
+                            }
+
+                            const indexes = getTargetElementIndexes(target, insertTarget.key);
+                            const insertIndex = indexes[insertTarget.index];
+
+                            setValue(target, key, value, insertIndex);
+                        };
+                    }
+
                     if (typeof (target[key]) == "function" || Array.isArray(target) && !/^[0-9]+$/.test(<string>key)) {
                         return target[key];
                     }
 
                     // アクセスしたキーに該当する要素を取得
-                    const targetElements = getTargetElements(target, <string>key);
+                    const indexes = getTargetElementIndexes(target, <string>key);
 
                     // 要素に設定された値を取得
-                    const valueList = targetElements
-                        .map(e => Array.isArray(e.data) ?
+                    const valueList = indexes
+                        .map(i => elements[i])
+                        .map(e => Array.isArray(e.data) ?   // TODO TypeError: Cannot read properties of undefined (reading 'data')
                             proxyFactry({} as EBMLTreeElement, e.data) :
                             e.data);
 
@@ -140,13 +264,18 @@ export class EbmlToJson {
                     }
                     else {
                         // ツリーのプロパティにアクセスしたら、対応する要素やその配列を返す
-                        const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == key)[0];
-                        if (valueList.length == 0)
-                            return undefined;
-                        else if (valueList.length == 1 && schema?.["@maxOccurs"] == "1")
-                            return valueList[0];
-                        else
-                            return proxyFactry(valueList, elements, <EBMLSchema["@name"]>key);
+                        if (valueList.length == 0) {
+                            return undefined;   // 該当する要素なし
+                        }
+                        else {
+                            const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == key)[0];
+                            if (valueList.length == 1 && schema?.["@maxOccurs"] == "1") {
+                                return valueList[0];    // 単一要素
+                            }
+                            else {
+                                return proxyFactry(valueList, elements, <EBMLSchema["@name"]>key);  // 複数要素
+                            }
+                        }
                     }
                 },
 
@@ -155,59 +284,14 @@ export class EbmlToJson {
                         return Reflect.set(target, key, value);
                     }
 
-                    // アクセスしたキーに該当する要素を取得
-                    const targetElements = getTargetElements(target, <string>key);
+                    setValue(target, <string>key, value);
 
-                    // 配列化
-                    if (!Array.isArray(value)) {
-                        value = [value];
-                    }
+                    return true;
+                },
 
-                    let i = 0;
-                    for (; i < value.length; i++) {
-                        const data = (function recursive(val) {
-                            if (isPlainObject(val)) {
-                                // オブジェクトを配列に変換
-                                return Object.keys(val).flatMap(k => {
-                                    const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == k)[0];
-                                    const vals = Array.isArray(val[k]) ? val[k] : [val[k]];
-                                    return vals.map(v => ({
-                                        id: schema ? BigInt(schema["@id"]) : null,
-                                        pos: null,
-                                        size: null,
-                                        schema,
-                                        data: schema["@name"] == "SimpleBlock" ? v : recursive(v)   // SimpleBlockだけ例外
-                                    } as EBMLElement));
-                                });
-                            }
-                            else {
-                                return val; // 配列の入れ子は構造上ありえない。そのまま返す
-                            }
-                        })(value[i]);
-
-                        if (i < targetElements.length) {
-                            // 既に存在する要素の値を更新
-                            targetElements[i].data = data;
-                        }
-                        else {
-                            // 新しい要素を追加
-                            const name = Array.isArray(target) ? elementName : key;
-                            const schema = EbmlSchemaJson.EBMLSchema.element.filter(e => e["@name"] == name)[0];
-                            elements.push({
-                                id: schema ? BigInt(schema["@id"]) : null,
-                                pos: null,
-                                size: null,
-                                schema,
-                                data
-                            } as EBMLElement)
-                        }
-                    }
-
-                    // 余分な要素を削除
-                    targetElements.slice(i).forEach(v => {
-                        const i = elements.indexOf(v);
-                        elements.splice(i, 1);
-                    });
+                deleteProperty(target, key) {
+                    const indexes = getTargetElementIndexes(target, <string>key);
+                    indexes.reverse().forEach(idx => elements.splice(idx, 1));
 
                     return true;
                 },
@@ -247,7 +331,7 @@ export class EbmlToJson {
      */
     public append(ebmlToJson: EbmlToJson) {
         for (const e of ebmlToJson.elements) {
-            const level = e.schema["@path"].split("\\").length - 1;
+            const level = e.schema["@path"].split("\\").length - 1
             let parent = this.elements[this.elements.length - 1];
             while (parent.schema["@path"].split("\\").length - 1 < level - 1) {
                 parent = parent.data[(<EBMLElement[]>parent.data).length - 1];

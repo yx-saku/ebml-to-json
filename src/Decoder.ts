@@ -1,5 +1,5 @@
 import { EbmlSchemaJson } from "./EbmlSchemaJson";
-import { EBMLElement, SimpleBlockStructure } from "./EbmlToJson";
+import { blockElements, EBMLElement, BlockStructure } from "./EbmlToJson";
 
 export class Decoder {
     private dataView: DataView;
@@ -105,42 +105,42 @@ export class Decoder {
                     // 階層
                     element.level = paths.length;
 
-                    if (element.schema["@name"] == "SimpleBlock") {
-                        // SimpleBlockの内部構造をデコード
-                        const simpleBlock = {} as SimpleBlockStructure;
+                    if (blockElements.includes(<any>element.schema["@name"])) {
+                        // SimpleBlock,Blockの内部構造をデコード
+                        const block = {} as BlockStructure;
 
                         // TrackNumber
                         const trackNumber = self.readVint(pos);
                         pos += trackNumber.size;
-                        simpleBlock.TrackNumber = trackNumber.value;
+                        block.TrackNumber = trackNumber.value;
 
                         // Timestamp
-                        simpleBlock.Timestamp = self.dataView.getInt8(pos++);
-                        simpleBlock.Timestamp <<= 8;
-                        simpleBlock.Timestamp |= self.dataView.getUint8(pos++);
+                        block.Timestamp = self.dataView.getInt8(pos++);
+                        block.Timestamp <<= 8;
+                        block.Timestamp |= self.dataView.getUint8(pos++);
 
                         const octet = self.dataView.getUint8(pos);
                         pos++;
 
                         // KEY
-                        simpleBlock.KEY = (octet & 0b10000000) != 0;
+                        block.KEY = (octet & 0b10000000) != 0;
 
                         // Rsvrd
-                        simpleBlock.Rsvrd = (octet & 0b01110000) >>> 4;
+                        block.Rsvrd = (octet & 0b01110000) >>> 4;
 
                         // INV
-                        simpleBlock.INV = (octet & 0b00001000) != 0;
+                        block.INV = (octet & 0b00001000) != 0;
 
                         // LACING
-                        simpleBlock.LACING = (octet & 0b00000110) >>> 1;
+                        block.LACING = (octet & 0b00000110) >>> 1;
 
                         // DIS
-                        simpleBlock.DIS = (octet & 0b00000001) != 0;
+                        block.DIS = (octet & 0b00000001) != 0;
 
-                        simpleBlock.frameData = <ArrayBuffer>self.dataView.buffer.slice(pos, element.pos.data.end);
-                        pos += simpleBlock.frameData.byteLength;
+                        block.frameData = <ArrayBuffer>self.dataView.buffer.slice(pos, element.pos.data.end);
+                        pos += block.frameData.byteLength;
 
-                        element.data = simpleBlock;
+                        element.data = block;
                     }
                     else {
                         if (element.schema?.["@type"] == "master") {
@@ -239,8 +239,8 @@ export class Decoder {
 
                 if (element.pos.data.end == null)
                     element.pos.data.end = pos;
-                // else if (element.pos.data.end != pos)
-                //     throw `データの位置がずれている: ${element.pos.data.end} ${pos}`
+                else if (element.pos.data.end != pos)
+                    throw `データの位置がずれている: ${element.pos.data.end} ${pos}`
 
                 // JSON 構造として保存
                 elements.push(element);
@@ -248,44 +248,5 @@ export class Decoder {
 
             return { elements };
         })().elements;
-    }
-
-    /**
-     * SimpleBlockとしてデコードする
-     */
-    public decodeSimpleBlock() {
-        const simpleBlock = {} as SimpleBlockStructure;
-        let pos = 0;
-
-        // TrackNumber
-        const trackNumber = this.readVint(pos);
-        pos += trackNumber.size;
-        simpleBlock.TrackNumber = trackNumber.value;
-
-        // Timestamp
-        simpleBlock.Timestamp = this.dataView.getUint16(pos);
-        pos += 2;
-
-        const octet = this.dataView.getUint8(pos);
-        pos++;
-
-        // KEY
-        simpleBlock.KEY = (octet & 0b10000000) != 0;
-
-        // Rsvrd
-        simpleBlock.Rsvrd = (octet & 0b01110000) >>> 4;
-
-        // INV
-        simpleBlock.INV = (octet & 0b00001000) != 0;
-
-        // LACING
-        simpleBlock.LACING = (octet & 0b00000110) >>> 1;
-
-        // DIS
-        simpleBlock.DIS = (octet & 0b00000001) != 0;
-
-        simpleBlock.frameData = <ArrayBuffer>this.dataView.buffer.slice(pos);
-
-        return simpleBlock;
     }
 }

@@ -1,4 +1,4 @@
-import { EBMLElement, SimpleBlockStructure } from "./EbmlToJson";
+import { EBMLElement, BlockStructure, blockElements } from "./EbmlToJson";
 
 export class Encoder {
     constructor(public readonly elements: EBMLElement[]) { }
@@ -51,13 +51,19 @@ export class Encoder {
      * @param start 
      * @returns 
      */
-    private writeVint(value: number | bigint, withOctetLength = false) {
-        if (!withOctetLength) {
-            // TODO 元々の大きさを保持するパターンがあってもいい
+    private writeVint(value: number | bigint, options?: { allowAllOne?: boolean, withOctetLength?: boolean }) {
+        if (!options?.withOctetLength) {
             const bitLength = this.getUintSize(value);
             let octetLength = 0;
             while (bitLength > octetLength * 8 - octetLength)
                 octetLength++;
+
+            if (!options?.allowAllOne) {
+                const vintMax = Math.pow(2, 8 * octetLength - octetLength) - 1;
+                if (vintMax == value) {
+                    octetLength++;  // Data部が全て1はNG
+                }
+            }
 
             value = BigInt(value);
             const octetLengthBit = (0x80n << BigInt((octetLength - 1) * 8)) >> BigInt(octetLength - 1);
@@ -74,37 +80,39 @@ export class Encoder {
     public encode() {
         const self = this;
         let prev = -1;
+        let totalWroteSize = 0;
         return (function encode(elements: EBMLElement[] = self.elements) {
             const buffers = elements.map(e => {
                 const buffer = {} as { id: ArrayBuffer, size: ArrayBuffer, data: ArrayBuffer };
 
                 // Element ID を書き込む
-                buffer.id = self.writeVint(e.id, true);
+                buffer.id = self.writeVint(e.id, { withOctetLength: true });
+                totalWroteSize += buffer.id.byteLength;
 
                 // データ部分
-                if (e.schema["@name"] == "SimpleBlock") {
-                    const sb = (<SimpleBlockStructure>e.data);
-                    prev = sb.Timestamp;
+                if (blockElements.includes(<any>e.schema["@name"])) {
+                    const block = (<BlockStructure>e.data);
+                    prev = block.Timestamp;
 
-                    const trackNumber = self.writeVint(sb.TrackNumber);
-                    const sbBuf = new Uint8Array(new ArrayBuffer(trackNumber.byteLength + 3 + sb.frameData.byteLength));
+                    const trackNumber = self.writeVint(block.TrackNumber);
+                    const sbBuf = new Uint8Array(new ArrayBuffer(trackNumber.byteLength + 3 + block.frameData.byteLength));
                     let offset = 0;
 
                     sbBuf.set(new Uint8Array(trackNumber), offset);
                     offset += trackNumber.byteLength;
 
-                    sbBuf.set(new Uint8Array(self.writeInt("int", sb.Timestamp, 2)), offset);
+                    sbBuf.set(new Uint8Array(self.writeInt("int", block.Timestamp, 2)), offset);
                     offset += 2;
 
-                    let octet = (sb.KEY ? 1 : 0) << 7;
-                    octet |= sb.Rsvrd << 4;
-                    octet |= (sb.INV ? 1 : 0) << 3;
-                    octet |= sb.LACING << 1;
-                    octet |= sb.DIS ? 1 : 0;
+                    let octet = (block.KEY ? 1 : 0) << 7;
+                    octet |= block.Rsvrd << 4;
+                    octet |= (block.INV ? 1 : 0) << 3;
+                    octet |= block.LACING << 1;
+                    octet |= block.DIS ? 1 : 0;
                     sbBuf.set(new Uint8Array([octet]), offset);
                     offset++;
 
-                    sbBuf.set(new Uint8Array(sb.frameData), offset);
+                    sbBuf.set(new Uint8Array(block.frameData), offset);
 
                     buffer.data = sbBuf.buffer;
                 }
@@ -170,8 +178,15 @@ export class Encoder {
                 }
 
                 // Size（データ長）を書き込む
-                buffer.size = self.writeVint(e.schema["@unknownsizeallowed"] != "1" ?
-                    buffer.data.byteLength : 0xFFFFFFFFFFFFFFn);
+                if (e.schema["@unknownsizeallowed"] != "1")
+                    buffer.size = self.writeVint(buffer.data.byteLength);
+                else
+                    buffer.size = self.writeVint(0xFFFFFFFFFFFFFFn, { allowAllOne: true });
+                totalWroteSize += buffer.size.byteLength;
+
+                if (e.schema?.["@type"] != "master") {
+                    totalWroteSize += buffer.data.byteLength;
+                }
 
                 return buffer;
             });
